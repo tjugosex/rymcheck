@@ -1,0 +1,146 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+)
+
+type Album struct {
+	ID              string   `json:"Id"`
+	Name            string   `json:"Name"`
+	AlbumArtist     string   `json:"AlbumArtist"`
+	ArtistItems     []NameID `json:"AlbumArtists"`
+	ProductionYear  int      `json:"ProductionYear"`
+	Overview        string   `json:"Overview"`
+	PrimaryImageTag string   `json:"PrimaryImageTag"` // use to construct /Items/{Id}/Images/Primary?tag=...
+}
+
+type NameID struct {
+	ID   string `json:"Id"`
+	Name string `json:"Name"`
+}
+
+// itemsResponse matches Jellyfin's ItemQueryResult for /Users/{userId}/Items
+type itemsResponse struct {
+	Items            []Album `json:"Items"`
+	TotalRecordCount int     `json:"TotalRecordCount"`
+}
+
+// Client wraps HTTP behavior and base params.
+type Client struct {
+	BaseURL   string       // e.g. http://localhost:8096
+	Token     string       // Jellyfin API token (user session token or API key)
+	HTTP      *http.Client // optional; if nil a sane default is used
+	UserAgent string       // optional; a sensible default is used if empty
+}
+
+var (
+	albumList []Album
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	for i, album := range albumList {
+		fmt.Fprintf(w, "<div>%s %s</div>", strconv.Itoa(i), album.Name)
+	}
+
+}
+
+func NewClient(baseURL, token string) *Client {
+	return &Client{
+		BaseURL: baseURL,
+		Token:   token,
+		HTTP: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   10 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		},
+		UserAgent: "Jellyfin-Go/1.0 (+https://example.com)",
+	}
+}
+
+func (c *Client) GetAllAlbums(ctx context.Context) ([]Album, error) {
+	const pageSize = 200
+	startIndex := 0
+	var all []Album
+
+	base, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse base url: %w", err)
+	}
+
+	for {
+		u := base.ResolveReference(&url.URL{Path: "/Items"})
+		q := u.Query()
+		q.Set("IncludeItemTypes", "MusicAlbum")
+		q.Set("Recursive", "true")
+		q.Set("SortBy", "SortName")
+		q.Set("SortOrder", "Ascending")
+		q.Set("StartIndex", fmt.Sprintf("%d", startIndex))
+		q.Set("Limit", fmt.Sprintf("%d", pageSize))
+		q.Set("Fields", "PrimaryImageTag,AlbumArtist,AlbumArtists,ProductionYear,Overview")
+		u.RawQuery = q.Encode()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-MediaBrowser-Token", c.Token)
+
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("bad status %d", resp.StatusCode)
+		}
+
+		var ir itemsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&ir); err != nil {
+			return nil, err
+		}
+
+		all = append(all, ir.Items...)
+		startIndex += len(ir.Items)
+		if startIndex >= ir.TotalRecordCount || len(ir.Items) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func main() {
+	ctx := context.Background()
+	jf := NewClient("https://jf.skaremyr.se", "96f1167856d947d0822307b911e4ce9b")
+
+	// If you have a user *session* token, you can fetch your userId from /Users/Me.
+	// If you're using an API key, supply a specific user's ID instead.
+	albums, err := jf.GetAllAlbums(ctx)
+	if err != nil {
+		panic(err)
+	}
+	for _, a := range albums {
+		albumList = append(albumList, a)
+		fmt.Printf("%s (%d) — %s\n", a.Name, a.ProductionYear, a.AlbumArtist)
+	}
+	http.HandleFunc("/", handler)
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
