@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 	"golang.org/x/text/unicode/norm"
 )
@@ -54,6 +56,8 @@ type Client struct {
 var (
 	albumList []Album
 )
+
+const file string = "rymcheck.db"
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"add": func(a, b int) int { return a + b },
@@ -313,7 +317,37 @@ func trimAll(xs []string) []string {
 	return out
 }
 
+func dbCreator() {
+	const file = "rymcheck.db"
+
+	db, err := sql.Open("sqlite3", file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	const create = `
+    CREATE TABLE IF NOT EXISTS albums (
+        rym_album_id TEXT NOT NULL PRIMARY KEY,
+        ID TEXT,
+        Name TEXT,
+        AlbumArtist TEXT,
+        ProductionYear INT,
+        Overview TEXT,
+        PrimaryImageTag TEXT
+    );`
+
+	result, err := db.ExecContext(context.Background(), create)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Print(result)
+}
+
 func main() {
+
+	go dbCreator()
+
 	ctx := context.Background()
 	jf := NewClient("https://jf.skaremyr.se", "96f1167856d947d0822307b911e4ce9b")
 
@@ -324,7 +358,9 @@ func main() {
 		panic(err)
 	}
 	for _, a := range albums {
+
 		albumList = append(albumList, a)
+
 		//fmt.Printf("%s (%d) — %s\n", a.Name, a.ProductionYear, a.AlbumArtist)
 	}
 	sort.Slice(albumList, func(i, j int) bool {
