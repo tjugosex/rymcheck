@@ -1,0 +1,80 @@
+{{define "page"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>da mosik</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Inter,Arial,sans-serif;margin:2rem;line-height:1.4}
+.container{max-width:1100px;margin:auto}
+.card{border:1px solid #ddd;border-radius:12px;padding:1rem;margin-bottom:1.5rem}
+label{font-weight:600}
+textarea{width:100%;min-height:180px}
+table{border-collapse:collapse;width:100%;margin-top:1rem}
+th,td{border:1px solid #ddd;padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:#f7f7f7}
+pre{white-space:pre-wrap;word-break:break-word;background:#f7f7f7;padding:1rem;border-radius:8px}
+.error{color:#b00020;font-weight:600}
+.sample{font-family:monospace;white-space:pre}
+small{color:#666}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Album getter</h1>
+
+  <div class="card">
+    <form action="/rym" method="post" enctype="multipart/form-data">
+      <p><label for="csvfile">CSV file</label><br>
+      <input id="csvfile" name="csvfile" type="file" accept=".csv"></p>
+      <p><label for="csvtext">…or paste CSV</label><br>
+      <textarea id="csvtext" name="csvtext" placeholder="Paste CSV with header here"></textarea></p>
+      <button type="submit">Parse</button>
+      <p class="sample"><small>Expected header:
+RYM Album, First Name, Last Name, First Name localized, Last Name localized, Title, Release_Date, Rating, Ownership, Purchase Date, Media Type, Review, Review Title</small></p>
+      <details>
+        <summary>Example CSV</summary>
+        <div class="sample">RYM Album,First Name,Last Name,First Name localized,Last Name localized,Title,Release_Date,Rating,Ownership,Purchase Date,Media Type,Review,Review Title
+"9441326","","공중도둑","","Mid-Air Thief","무너지기","2018","8","n","","","",""
+"10326582","","100 gecs","","","1000 gecs","2019","5","n","","","",""
+"10503320","","3776","","","歳時記","2019","9","n","","","",""</div>
+      </details>
+    </form>
+    {{if .Err}}<p class="error">{{.Err}}</p>{{end}}
+  </div>
+
+  {{if .Albums}}
+  <div class="card">
+    <h2>Parsed Albums ({{len .Albums}})</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Artist</th>
+          <th>Title</th>
+          <th>Release Date</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range $i, $a := .Albums}}
+        <tr>
+          <td>{{add $i 1}}</td>
+          <td>{{$a.AlbumArtist}}</td>
+          <td>{{$a.Name}}</td>
+          <td>{{$a.ProductionYear}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>JSON</h2>
+    <pre>{{.JSON}}</pre>
+  </div>
+  {{end}}
+</div>
+</body>
+</html>
+{{end}}
